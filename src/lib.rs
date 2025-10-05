@@ -152,7 +152,7 @@
 //!
 //! # Notes
 //!
-//! -`#[display]` cannot be applied on generic types like `Foo<T>`, because that **significantly** increases complexity of the parsing logic required, which also leads to much higher compile-times
+//! - `#[display]` cannot be applied on generic types like `Foo<T>`, because that **significantly** increases complexity of the parsing logic required, which also leads to much higher compile-times
 //! - `#[display]` only applies to `enum`s
 //!
 //! # Comparison between `displaystr`, `thiserror` and `displaydoc`
