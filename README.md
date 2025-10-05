@@ -1,4 +1,4 @@
-lol
+# `displaystr`
 
 <!-- cargo-rdme start -->
 
