@@ -78,7 +78,24 @@ impl ::core::fmt::Display for DataStoreError {
 
 ## Auto-generated doc comments
 
-Use `#[display(doc)]` to automatically generate `///` comments. The above example's expansion `enum` would generate this:
+Use `#[display(doc)]` to automatically generate `///` comments:
+
+```rust
+use displaystr::display;
+
+#[display(doc)]
+pub enum DataStoreError {
+    Disconnect(std::io::Error) = "data store disconnected",
+    Redaction(String) = "the data for key `{_0}` is not available",
+    InvalidHeader {
+        expected: String,
+        found: String,
+    } = "invalid header (expected {expected:?}, found {found:?})",
+    Unknown = "unknown data store error",
+}
+```
+
+The above example's expands to this:
 
 ```rust
 use displaystr::display;
@@ -96,6 +113,8 @@ pub enum DataStoreError {
     /// unknown data store error
     Unknown,
 }
+
+// impl Display omitted since it's identical to the previous section
 ```
 
 ## Multiple arguments
@@ -134,6 +153,11 @@ impl ::core::fmt::Display for DataStoreError {
     }
 }
 ```
+
+## Notes
+
+-`#[display]` cannot be applied on generic types like `Foo<T>`, because that **significantly** increases complexity of the parsing logic required, which also leads to much higher compile-times
+- `#[display]` only applies to `enum`s
 
 ## Comparison between `displaystr`, `thiserror` and `displaydoc`
 

@@ -74,7 +74,24 @@
 //!
 //! # Auto-generated doc comments
 //!
-//! Use `#[display(doc)]` to automatically generate `///` comments. The above example's expansion `enum` would generate this:
+//! Use `#[display(doc)]` to automatically generate `///` comments:
+//!
+//! ```rust
+//! use displaystr::display;
+//!
+//! #[display(doc)]
+//! pub enum DataStoreError {
+//!     Disconnect(std::io::Error) = "data store disconnected",
+//!     Redaction(String) = "the data for key `{_0}` is not available",
+//!     InvalidHeader {
+//!         expected: String,
+//!         found: String,
+//!     } = "invalid header (expected {expected:?}, found {found:?})",
+//!     Unknown = "unknown data store error",
+//! }
+//! ```
+//!
+//! The above example's expands to this:
 //!
 //! ```rust
 //! use displaystr::display;
@@ -92,6 +109,8 @@
 //!     /// unknown data store error
 //!     Unknown,
 //! }
+//!
+//! // impl Display omitted since it's identical to the previous section
 //! ```
 //!
 //! # Multiple arguments
