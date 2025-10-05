@@ -1,0 +1,751 @@
+//! [![crates.io](https://img.shields.io/crates/v/displayst?style=flat-square&logo=rust)](https://crates.io/crates/displayst)
+//! [![docs.rs](https://img.shields.io/badge/docs.rs-displayst-blue?style=flat-square&logo=docs.rs)](https://docs.rs/displayst)
+//! ![license](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue?style=flat-square)
+//! ![msrv](https://img.shields.io/badge/msrv-1.56-blue?style=flat-square&logo=rust)
+//! [![github](https://img.shields.io/github/stars/nik-rev/displayst)](https://github.com/nik-rev/displayst)
+//!
+//! This crate provides a convenient attribute macro that implements [`Display`](core::fmt::Display) for you
+//!
+//! ```toml
+//! [dependencies]
+//! displayst = "0.1"
+//! ```
+//!
+//! **Bonus:** This crate has 0 dependencies. I think compile-times are very important, so I have put a lot of effort into optimizing them.
+//!
+//! # Example
+//!
+//! Apply [`#[display]`](display) on `enum`s:
+//!
+//! ```rust
+//! use displayst::display;
+//!
+//! #[display]
+//! pub enum DataStoreError {
+//!     Disconnect(std::io::Error) = "data store disconnected",
+//!     Redaction(String) = "the data for key `{_0}` is not available",
+//!     InvalidHeader {
+//!         expected: String,
+//!         found: String,
+//!     } = "invalid header (expected {expected:?}, found {found:?})",
+//!     Unknown = "unknown data store error",
+//! }
+//! ```
+//!
+//! The above expands to this:
+//!
+//! ```rust
+//! use displayst::display;
+//!
+//! pub enum DataStoreError {
+//!     Disconnect(std::io::Error),
+//!     Redaction(String),
+//!     InvalidHeader {
+//!         expected: String,
+//!         found: String,
+//!     },
+//!     Unknown,
+//! }
+//!
+//! impl ::core::fmt::Display for DataStoreError {
+//!     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+//!         match self {
+//!             Self::Disconnect(_0) => {
+//!                 f.write_fmt(format_args!("data store disconnected"))
+//!             }
+//!             Self::Redaction(_0) => {
+//!                 f.write_fmt(format_args!("the data for key `{_0}` is not available"))
+//!             }
+//!             Self::InvalidHeader { expected, found } => {
+//!                 f.write_fmt(format_args!("invalid header (expected {expected}, found {found})"))
+//!             }
+//!             Self::Unknown => {
+//!                 f.write_fmt(format_args!("unknown data store error"))
+//!             }
+//!         }
+//!     }
+//! }
+//! ```
+//!
+//! # Auto-generated doc comments
+//!
+//! Use `#[display(doc)]` to automatically generate `///` comments. The above example's expansion `enum` would generate this:
+//!
+//! ```rust
+//! use displayst::display;
+//!
+//! pub enum DataStoreError {
+//!     /// data store disconnected
+//!     Disconnect(std::io::Error),
+//!     /// the data for key `{_0}` is not available
+//!     Redaction(String),
+//!     /// invalid header (expected {expected:?}, found {found:?})
+//!     InvalidHeader {
+//!         expected: String,
+//!         found: String,
+//!     },
+//!     /// unknown data store error
+//!     Unknown,
+//! }
+//! ```
+
+use proc_macro::{Delimiter, Group, Ident, Literal, Punct, Spacing, Span, TokenStream, TokenTree};
+
+#[proc_macro_attribute]
+pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
+    if !args.is_empty() {
+        return CompileError::new(Span::call_site(), "`#[display]` doesn't take any arguments")
+            .into_iter()
+            .collect();
+    }
+
+    // This is the final output that we'll emit.
+    // It's the same, but we are gonna strip all the discriminant strings
+
+    let mut output = TokenStream::new();
+    let mut ts = ts.into_iter().peekable();
+
+    // Parse + ignore everything until and including the `enum` keyword
+    //
+    // #[foo = bar] pub(crate) enum Foo { ... }
+    // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ skip all of this
+    loop {
+        let Some(tt) = ts.next() else {
+            return CompileError::new(Span::call_site(), "expected an `enum` item")
+                .into_iter()
+                .collect();
+        };
+
+        match tt {
+            // Skip all `OuterAttribute`
+            //
+            // #[foo = bar]
+            // ^
+            TokenTree::Punct(punct) if punct == '#' => {
+                output.extend([TokenTree::Punct(punct)]);
+
+                // #[foo = bar]
+                //  ^^^^^^^^^^^
+                output.extend(ts.next());
+            }
+            // Reached enum keyword. End parsing.
+            //
+            // enum Foo { ... }
+            // ^^^^
+            TokenTree::Ident(ident) if ident.to_string() == "enum" => {
+                output.extend([TokenTree::Ident(ident)]);
+                break;
+            }
+            // ignore any other token e.g. `pub` or `(crate)`
+            tt => {
+                output.extend([tt]);
+            }
+        }
+    }
+
+    // enum Foo { ... }
+    //     ^ we are here now
+
+    let enum_ident = match ts.next() {
+        Some(TokenTree::Ident(ident)) => ident,
+        _ => unreachable!("`enum` is always followed by an identifier"),
+    };
+
+    // enum Foo <all: of_the_generics> { ... }
+    //         ^ we are here now
+
+    // enum Foo <all: of_the_generics> { ... }
+    //          ^^^^^^^^^^^^^^^^^^^^^^ contains all generics on the item
+    let generics = match ts.peek() {
+        // opening '<'
+        //
+        // enum Foo <all: of_the_generics> { ... }
+        //          ^
+        Some(TokenTree::Punct(punct)) if *punct == '<' => {
+            let mut generics = TokenStream::new();
+            generics.extend(ts.next());
+
+            loop {
+                match ts.next() {
+                    // closing '>'
+                    //
+                    // enum Foo <all: of_the_generics> { ... }
+                    //                               ^
+                    Some(TokenTree::Punct(punct)) if punct == '>' => {
+                        generics.extend([TokenTree::Punct(punct)]);
+                        break;
+                    }
+                    tt => {
+                        generics.extend(tt);
+                    }
+                }
+            }
+
+            generics
+        }
+        _ => TokenStream::new(),
+    };
+
+    // enum Foo where A: B { ... }
+    //          ^^^^^^^^^^ contains the entire where clause
+    let where_clause = match ts.peek() {
+        Some(TokenTree::Ident(ident)) if ident.to_string() == "where" => {
+            let mut where_clause = TokenStream::new();
+            where_clause.extend(ts.next());
+
+            loop {
+                match ts.peek() {
+                    Some(TokenTree::Group(group)) if group.delimiter() == Delimiter::Brace => break,
+                    _ => {
+                        where_clause.extend(ts.next());
+                    }
+                }
+            }
+
+            where_clause
+        }
+        _ => TokenStream::new(),
+    };
+
+    // enum Foo where A: B { ... }
+    //                    ^ we are here now
+
+    // enum Foo where A: B { ... }
+    //                     ^^^^^^^ contains all of the variants
+    let enum_body = match ts.next() {
+        Some(TokenTree::Group(group)) if group.delimiter() == Delimiter::Brace => group.stream(),
+        _ => unreachable!("enum has braces"),
+    };
+
+    // enum Foo <all: of_the_generics> { ... }
+    //                                ^ we are here now
+
+    // All enum variants, exactly as-is just with the string discriminant removed
+    //
+    // We do this because we're not a `#[derive()]` macro. We are an attribute macro -
+    // but we don't really want to change the original input all that much.
+    let mut variants = TokenStream::new();
+
+    // All arms of the `match` generated inside the `Display` impl
+    let mut arms = TokenStream::new();
+
+    // Contains all `compile_error!("msg")` which we'll report all at once
+    let mut compile_errors = TokenStream::new();
+
+    // Each iteration of this loop parses a single variant
+    //
+    // enum Foo {
+    //     Bar(u32) = "bar",
+    //     ^^^^^^^^^^^^^^^^^
+    //     Baz = "foo"
+    //     ^^^^^^^^^^^
+    // }
+    loop {
+        // Parse all attributes on the variant
+
+        loop {
+            match ts.peek() {
+                Some(TokenTree::Punct(punct)) if *punct == '#' => {
+                    // #[foo = bar]
+                    // ^
+                    variants.extend(ts.next());
+                    // #[foo = bar]
+                    //  ^^^^^^^^^^^
+                    variants.extend(ts.next());
+                }
+                // no more attributes
+                _ => break,
+            }
+        }
+
+        // Parse visibility of the variant (semantically rejected, but syntactically valid)
+
+        // pub(crate) Foo
+        // ^^^^^^^^^^
+        match ts.peek() {
+            // pub(crate)
+            // ^^^
+            Some(TokenTree::Ident(ident)) if ident.to_string() == "pub" => {
+                variants.extend(ts.next());
+
+                match ts.peek() {
+                    // pub(in crate)
+                    //    ^^^^^^^^^^
+                    Some(TokenTree::Group(group))
+                        if group.delimiter() == Delimiter::Parenthesis =>
+                    {
+                        variants.extend(ts.next());
+                    }
+                    _ => (),
+                }
+            }
+            _ => (),
+        }
+
+        // Variant identifier
+        //
+        // Foo {}
+        // ^^^
+
+        let variant_ident = match ts.next() {
+            Some(TokenTree::Ident(ident)) => {
+                variants.extend([TokenTree::Ident(ident.clone())]);
+                ident
+            }
+            _ => unreachable!("identifier must appear in this position"),
+        };
+
+        // Foo { a: usize, b: usize }
+        //     ^^^^^^^^^^^^^^^^^^^^^^
+        match ts.next() {
+            // tuple variant
+            //
+            // Foo(a, b) = "foo",
+            //    ^^^^^^
+            Some(TokenTree::Group(fields)) if fields.delimiter() == Delimiter::Parenthesis => {
+                variants.extend([TokenTree::Group(fields.clone())]);
+
+                // Foo() has 0 variants. Otherwise, start the count at 1
+                let mut fields = fields.stream().into_iter().peekable();
+                let is_zero_variants = fields.peek().is_none();
+
+                // Let's count how many commas there are between each field
+                //
+                // Foo(bar, baz, quux,)
+                //        ^ this one
+                //             ^ and this one
+                //                   ^ but not this one (it is trailing)
+                let mut commas = 0;
+
+                while let Some(tt) = fields.next() {
+                    match tt {
+                        TokenTree::Punct(punct) if punct == ',' => {
+                            // Only count non-trailing commas
+                            if fields.peek().is_some() {
+                                commas += 1;
+                            }
+                        }
+                        // ignore any other tokens
+                        _ => (),
+                    }
+                }
+
+                // Foo() has 0 fields
+                // Foo(bar) has 1 field
+                // Foo(bar,) has 1 field
+                // Foo(bar,baz) has 2 fields
+                let variant_count = if is_zero_variants { 0 } else { 1 + commas };
+
+                // Self::Disconnect(_0, _1) => f.write_fmt(format_args!("..."))
+                //                  ^^^^^^
+                let destructure = (0..variant_count)
+                    .flat_map(|i| {
+                        [
+                            TokenTree::Ident(Ident::new(&format!("_{i}"), Span::call_site())),
+                            TokenTree::Punct(Punct::new(',', Spacing::Joint)),
+                        ]
+                    })
+                    .collect();
+
+                // Self::Disconnect(_0, _1) => f.write_fmt(format_args!("..."))
+                //                 ^^^^^^^^
+                let destructure = TokenTree::Group(Group::new(Delimiter::Parenthesis, destructure));
+
+                // Foo(a, b) = "foo",
+                //           ^^^^^^^
+                match extract_arm(&mut ts, variant_ident, destructure) {
+                    Ok(arm) => {
+                        arms.extend(arm);
+                    }
+                    Err((arm, compile_error)) => {
+                        arms.extend(arm);
+                        compile_errors.extend(compile_error);
+                    }
+                };
+
+                // Foo(a, b) = "foo",
+                //                  ^
+                match ts.peek() {
+                    Some(TokenTree::Punct(punct)) if *punct == ',' => {
+                        // trailing comma
+                        variants.extend(ts.next());
+                    }
+                    _ => (),
+                }
+            }
+            // struct variant
+            //
+            // Foo { a: bool, b: usize } = "foo"
+            //     ^^^^^^^^^^^^^^^^^^^^^
+            Some(TokenTree::Group(fields)) if fields.delimiter() == Delimiter::Brace => {
+                variants.extend([TokenTree::Group(fields.clone())]);
+
+                // if we are after `:`. We hold this because types themselves can contain `:`, e.g
+                // `for<T: Bar> Foo<T>`
+                let mut is_inside_type = false;
+
+                let mut fields = fields.stream().into_iter().peekable();
+
+                // Self::InvalidHeader { expected, found, } => f.write_fmt(format_args!("..."))
+                //                       ^^^^^^^^^^^^^^^^
+                let mut destructure = TokenStream::new();
+
+                // Obtain all the fields. Every field has `:` preceded by an identifier.
+                loop {
+                    match fields.peek() {
+                        Some(TokenTree::Punct(punct)) if *punct == ':' && !is_inside_type => {
+                            // Self::InvalidHeader { expected, found, } => f.write_fmt(format_args!("..."))
+                            //                       ^^^^^^^^
+                            destructure.extend(fields.next());
+                            // Self::InvalidHeader { expected, found, } => f.write_fmt(format_args!("..."))
+                            //                               ^
+                            destructure.extend([TokenTree::Punct(Punct::new(',', Spacing::Joint))]);
+                            is_inside_type = true;
+                        }
+                        // foo: Bar,
+                        //         ^
+                        Some(TokenTree::Punct(punct)) if *punct == ',' && is_inside_type => {
+                            is_inside_type = false;
+                            fields.next();
+                        }
+                        // ignore any other tokens like `#[doc = "..."]` or `pub(crate)`
+                        Some(_) => (),
+                        // Reached end of the struct variant's fields
+                        None => break,
+                    }
+                }
+
+                // Self::InvalidHeader { expected, found, } => f.write_fmt(format_args!("..."))
+                //                     ^^^^^^^^^^^^^^^^^^^^
+                let destructure = TokenTree::Group(Group::new(Delimiter::Brace, destructure));
+
+                // Foo { a: bool, b: usize } = "foo",
+                //                           ^^^^^^^
+                match extract_arm(&mut ts, variant_ident, destructure) {
+                    Ok(arm) => {
+                        arms.extend(arm);
+                    }
+                    Err((arm, compile_error)) => {
+                        arms.extend(arm);
+                        compile_errors.extend(compile_error);
+                    }
+                };
+
+                // Foo { a: bool, b: usize } = "foo",
+                //                                  ^
+                match ts.peek() {
+                    Some(TokenTree::Punct(punct)) if *punct == ',' => {
+                        // trailing comma
+                        variants.extend(ts.next());
+                    }
+                    _ => (),
+                }
+            }
+            // unit variant with discriminant after it
+            //
+            // Foo = "foo",
+            //     ^
+            Some(TokenTree::Punct(punct)) if punct == '=' => {
+                match ts.next() {
+                    // Foo = "foo",
+                    //       ^^^^^
+                    Some(TokenTree::Literal(string)) => {
+                        // Success.
+                        arms.extend(generate_arm(
+                            variant_ident,
+                            // Foo {}
+                            //     ^^
+                            TokenTree::Group(Group::new(Delimiter::Brace, TokenStream::new())),
+                            string,
+                        ));
+                    }
+                    Some(tt) => {
+                        compile_errors
+                            .extend(CompileError::new(tt.span(), "expected string literal"));
+
+                        // DUMMY arm so we compile. so rust-analyzer works better
+                        arms.extend(generate_arm(
+                            variant_ident,
+                            // Foo {}
+                            //     ^^
+                            TokenTree::Group(Group::new(Delimiter::Brace, TokenStream::new())),
+                            Literal::string(""),
+                        ));
+                    }
+                    None => unreachable!("`=` is always followed by an expression"),
+                };
+
+                // Foo = "foo",
+                //            ^
+                match ts.peek() {
+                    Some(TokenTree::Punct(punct)) if *punct == ',' => {
+                        // trailing comma
+                        variants.extend(ts.next());
+                    }
+                    _ => (),
+                }
+            }
+            // unit variant with comma after it (invalid)
+            //
+            // Foo,
+            //    ^
+            Some(TokenTree::Punct(punct)) if punct == ',' => {
+                variants.extend([TokenTree::Punct(punct.clone())]);
+
+                compile_errors.extend(CompileError::new(
+                    variant_ident.span(),
+                    "expected this variant to have a string discriminant: `= \"...\"`",
+                ));
+
+                // DUMMY arm so we compile. so rust-analyzer works better
+                arms.extend(generate_arm(
+                    variant_ident,
+                    // Foo {}
+                    //     ^^
+                    TokenTree::Group(Group::new(Delimiter::Brace, TokenStream::new())),
+                    Literal::string(""),
+                ));
+            }
+            // unit variant with no comma after it (it the last variant)
+            //
+            // Foo
+            //    ^
+            None => {
+                compile_errors.extend(CompileError::new(
+                    variant_ident.span(),
+                    "expected this variant to have a string discriminant: `= \"...\"`",
+                ));
+
+                // DUMMY arm so we compile. so rust-analyzer works better
+                arms.extend(generate_arm(
+                    variant_ident,
+                    // Foo {}
+                    //     ^^
+                    TokenTree::Group(Group::new(Delimiter::Brace, TokenStream::new())),
+                    Literal::string(""),
+                ));
+
+                break;
+            }
+            Some(_) => unreachable!("no other token is valid in this position"),
+        }
+    }
+
+    // The original enum. Re-constructed but without the string discriminants
+    let original_enum = output
+        .into_iter()
+        .chain([TokenTree::Ident(enum_ident.clone())])
+        .chain(generics)
+        .chain(where_clause)
+        .chain(enum_body)
+        .chain(variants);
+
+    // actual implementation of the `Display` trait
+    let display_impl = TokenStream::from_iter([
+        TokenTree::Ident(Ident::new("impl", Span::call_site())),
+        TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+        TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+        TokenTree::Ident(Ident::new("core", Span::call_site())),
+        TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+        TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+        TokenTree::Ident(Ident::new("fmt", Span::call_site())),
+        TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+        TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+        TokenTree::Ident(Ident::new("Display", Span::call_site())),
+        TokenTree::Ident(Ident::new("for", Span::call_site())),
+        TokenTree::Ident(enum_ident),
+        TokenTree::Group(Group::new(
+            Delimiter::Brace,
+            TokenStream::from_iter([
+                TokenTree::Ident(Ident::new("fn", Span::call_site())),
+                TokenTree::Ident(Ident::new("fmt", Span::call_site())),
+                TokenTree::Group(Group::new(
+                    Delimiter::Parenthesis,
+                    TokenStream::from_iter([
+                        TokenTree::Punct(Punct::new('&', Spacing::Joint)),
+                        TokenTree::Ident(Ident::new("self", Span::call_site())),
+                        TokenTree::Punct(Punct::new(',', Spacing::Joint)),
+                        TokenTree::Ident(Ident::new("f", Span::call_site())),
+                        TokenTree::Punct(Punct::new('&', Spacing::Joint)),
+                        TokenTree::Ident(Ident::new("mut", Span::call_site())),
+                        TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+                        TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+                        TokenTree::Ident(Ident::new("core", Span::call_site())),
+                        TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+                        TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+                        TokenTree::Ident(Ident::new("fmt", Span::call_site())),
+                        TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+                        TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+                        TokenTree::Ident(Ident::new("Formatter", Span::call_site())),
+                    ]),
+                )),
+                TokenTree::Punct(Punct::new('-', Spacing::Joint)),
+                TokenTree::Punct(Punct::new('>', Spacing::Joint)),
+                TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+                TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+                TokenTree::Ident(Ident::new("core", Span::call_site())),
+                TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+                TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+                TokenTree::Ident(Ident::new("fmt", Span::call_site())),
+                TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+                TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+                TokenTree::Ident(Ident::new("Result", Span::call_site())),
+                TokenTree::Group(Group::new(
+                    Delimiter::Brace,
+                    TokenStream::from_iter([
+                        TokenTree::Ident(Ident::new("match", Span::call_site())),
+                        TokenTree::Ident(Ident::new("self", Span::call_site())),
+                        TokenTree::Group(Group::new(Delimiter::Brace, arms)),
+                    ]),
+                )),
+            ]),
+        )),
+    ]);
+
+    original_enum
+        .chain(compile_errors)
+        .chain(display_impl)
+        .collect()
+}
+
+/// Given a `ts` which contains `= "..."`, extract it and return as `DisplayArm`
+///
+/// ```ignore
+/// Self::InvalidHeader { expected, found, } => f.write_fmt(format_args!("..."))
+///       ^^^^^^^^^^^^^ variant_ident
+///                     ^^^^^^^^^^^^^^^^^^^^ destructure
+///                                                                      ^^^^^ string
+/// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ return (DisplayArm)
+/// ```
+#[allow(clippy::result_large_err)]
+fn extract_arm(
+    ts: &mut std::iter::Peekable<proc_macro::token_stream::IntoIter>,
+    variant_ident: Ident,
+    destructure: TokenTree,
+) -> Result<DisplayArm, (DisplayArm, CompileError)> {
+    // NOTE: We nest it because even if there is no discriminant (`= "foo"`) we still want to
+    // output a syntactically valid enum so rust-analyzer can work with it for better DX
+    match ts.next() {
+        Some(TokenTree::Punct(punct)) if punct == '=' => {
+            // Foo { a: bool, b: usize } = "foo"
+            //                             ^^^^^
+            match ts.next() {
+                Some(TokenTree::Literal(string)) => {
+                    // Success.
+                    Ok(generate_arm(variant_ident, destructure, string))
+                }
+                Some(tt) => {
+                    Err((
+                        // dummy arm, so we continue to compile
+                        generate_arm(variant_ident, destructure, Literal::string("")),
+                        CompileError::new(tt.span(), "expected string literal"),
+                    ))
+                }
+                None => unreachable!("`=` is always followed by an expression"),
+            }
+        }
+        _ => {
+            let span = variant_ident.span();
+            Err((
+                // dummy arm, so we continue to compile
+                generate_arm(variant_ident, destructure, Literal::string("")),
+                CompileError::new(
+                    span,
+                    "expected this variant to have a string discriminant: `= \"...\"`",
+                ),
+            ))
+        }
+    }
+}
+
+/// A single arm like:
+///
+/// ```ignore
+/// Self::InvalidHeader { expected, found, } => f.write_fmt(format_args!("..."))
+/// ```
+type DisplayArm = [TokenTree; 11];
+
+/// Generates an arm like this:
+///
+/// ```ignore
+/// Self::InvalidHeader { expected, found, } => f.write_fmt(format_args!("..."))
+///       ^^^^^^^^^^^^^ variant_ident
+///                     ^^^^^^^^^^^^^^^^^^^^ destructure
+///                                                                      ^^^^^ string
+/// ```
+fn generate_arm(variant_ident: Ident, destructure: TokenTree, string: Literal) -> DisplayArm {
+    [
+        TokenTree::Ident(Ident::new("Self", Span::call_site())),
+        TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+        TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+        TokenTree::Ident(variant_ident),
+        destructure,
+        TokenTree::Punct(Punct::new('=', Spacing::Joint)),
+        TokenTree::Punct(Punct::new('>', Spacing::Joint)),
+        TokenTree::Ident(Ident::new("f", Span::call_site())),
+        TokenTree::Punct(Punct::new('.', Spacing::Joint)),
+        TokenTree::Ident(Ident::new("write_fmt", Span::call_site())),
+        TokenTree::Group(Group::new(
+            Delimiter::Parenthesis,
+            TokenStream::from_iter([
+                TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+                TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+                TokenTree::Ident(Ident::new("core", Span::call_site())),
+                TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+                TokenTree::Punct(Punct::new(':', Spacing::Joint)),
+                TokenTree::Ident(Ident::new("format_args", Span::call_site())),
+                TokenTree::Punct(Punct::new('!', Spacing::Joint)),
+                TokenTree::Group(Group::new(
+                    Delimiter::Parenthesis,
+                    TokenTree::Literal(string).into(),
+                )),
+            ]),
+        )),
+    ]
+}
+
+/// `.into_iter()` generates `compile_error!($message)` at `$span`
+struct CompileError {
+    /// Where the compile error is generates
+    pub span: Span,
+    /// Message of the compile error
+    pub message: String,
+}
+
+impl CompileError {
+    /// Create a new compile error
+    pub fn new(span: Span, message: impl AsRef<str>) -> Self {
+        Self {
+            span,
+            message: message.as_ref().to_string(),
+        }
+    }
+}
+
+impl IntoIterator for CompileError {
+    type Item = TokenTree;
+    type IntoIter = std::array::IntoIter<Self::Item, 3>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        [
+            TokenTree::Ident(Ident::new("compile_error", self.span)),
+            TokenTree::Punct({
+                let mut punct = Punct::new('!', Spacing::Alone);
+                punct.set_span(self.span);
+                punct
+            }),
+            TokenTree::Group({
+                let mut group = Group::new(Delimiter::Brace, {
+                    TokenStream::from_iter(vec![TokenTree::Literal({
+                        let mut string = Literal::string(&self.message);
+                        string.set_span(self.span);
+                        string
+                    })])
+                });
+                group.set_span(self.span);
+                group
+            }),
+        ]
+        .into_iter()
+    }
+}
