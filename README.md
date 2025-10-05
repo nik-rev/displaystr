@@ -102,7 +102,10 @@ use displaystr::display;
 
 #[display]
 pub enum DataStoreError {
-    Redaction(String, Vec<String>) = ("the data for key `{_0}` is not available, but we recovered: {}", _1.join("+")),
+    Redaction(String, Vec<String>) = (
+        "the data for key `{_0}` is not available, but we recovered: {}",
+        _1.join("+"),
+    ),
 }
 ```
 
@@ -118,9 +121,10 @@ pub enum DataStoreError {
 impl ::core::fmt::Display for DataStoreError {
     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
         match self {
-            Self::Redaction(_0, _1) => {
-                f.write_fmt(format_args!("the data for key `{_0}` is not available, but we recovered: {}", _1.join("+")))
-            }
+            Self::Redaction(_0, _1) => f.write_fmt(format_args!(
+                "the data for key `{_0}` is not available, but we recovered: {}",
+                _1.join("+")
+            )),
         }
     }
 }

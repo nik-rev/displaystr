@@ -128,7 +128,9 @@
 
 use proc_macro::{Delimiter, Group, Ident, Literal, Punct, Spacing, Span, TokenStream, TokenTree};
 
-/// Implements [`Display`](::core::fmt::Display) for enums:
+/// Ergonomically implement [`Display`](::core::fmt::Display) for `enum`s
+///
+/// # Example
 ///
 /// ```rust
 /// use displaystr::display;
