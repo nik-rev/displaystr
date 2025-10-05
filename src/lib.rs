@@ -94,11 +94,24 @@ use proc_macro::{Delimiter, Group, Ident, Literal, Punct, Spacing, Span, TokenSt
 
 #[proc_macro_attribute]
 pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
-    if !args.is_empty() {
-        return CompileError::new(Span::call_site(), "`#[display]` doesn't take any arguments")
-            .into_iter()
-            .collect();
-    }
+    // Contains all `compile_error!("msg")` which we'll report all at once
+    let mut compile_errors = TokenStream::new();
+
+    let mut args = args.into_iter();
+
+    let generate_doc_comments = match args.next() {
+        Some(TokenTree::Ident(ident)) if ident.to_string() == "doc" => {
+            if let Some(next) = args.next() {
+                compile_errors.extend(CompileError::new(next.span(), "unexpected token"));
+            }
+            true
+        }
+        Some(tt) => {
+            compile_errors.extend(CompileError::new(tt.span(), "unexpected token"));
+            false
+        }
+        None => false,
+    };
 
     // This is the final output that we'll emit.
     // It's the same, but we are gonna strip all the discriminant strings
@@ -232,9 +245,6 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
     // All arms of the `match` generated inside the `Display` impl
     let mut arms = TokenStream::new();
 
-    // Contains all `compile_error!("msg")` which we'll report all at once
-    let mut compile_errors = TokenStream::new();
-
     // Each iteration of this loop parses a single variant
     //
     // enum Foo {
@@ -265,6 +275,16 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
             }
         }
 
+        // We'll append rest of the variant in here, because
+        // if we generate doc comments we'll want to add them at the end
+        //
+        // #[doc = "bar"]
+        // ^^^^^^^^^^^^^^ we want to generate this if we were called with `display(doc)`
+        //
+        // Foo = "bar",
+        //       ^^^^^ give this
+        let mut variant = TokenStream::new();
+
         // Parse visibility of the variant (semantically rejected, but syntactically valid)
 
         // pub(crate) Foo
@@ -273,7 +293,7 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
             // pub(crate)
             // ^^^
             Some(TokenTree::Ident(ident)) if ident.to_string() == "pub" => {
-                variants.extend(enum_body.next());
+                variant.extend(enum_body.next());
 
                 match enum_body.peek() {
                     // pub(in crate)
@@ -281,7 +301,7 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
                     Some(TokenTree::Group(group))
                         if group.delimiter() == Delimiter::Parenthesis =>
                     {
-                        variants.extend(enum_body.next());
+                        variant.extend(enum_body.next());
                     }
                     _ => (),
                 }
@@ -296,7 +316,7 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
 
         let variant_ident = match enum_body.next() {
             Some(TokenTree::Ident(ident)) => {
-                variants.extend([TokenTree::Ident(ident.clone())]);
+                variant.extend([TokenTree::Ident(ident.clone())]);
                 ident
             }
             _ => unreachable!("identifier must appear in this position"),
@@ -310,9 +330,9 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
             // Foo(a, b) = "foo",
             //    ^^^^^^
             Some(TokenTree::Group(fields)) if fields.delimiter() == Delimiter::Parenthesis => {
-                variants.extend([TokenTree::Group(fields.clone())]);
+                variant.extend([TokenTree::Group(fields.clone())]);
 
-                // Foo() has 0 variants. Otherwise, start the count at 1
+                // Foo() has 0 variant. Otherwise, start the count at 1
                 let mut fields = fields.stream().into_iter().peekable();
                 let is_zero_variants = fields.peek().is_none();
 
@@ -360,12 +380,34 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
 
                 // Foo(a, b) = "foo",
                 //           ^^^^^^^
-                match extract_arm(&mut enum_body, variant_ident, destructure) {
-                    Ok(arm) => {
-                        arms.extend(arm);
+                match extract_string(&mut enum_body, variant_ident.span()) {
+                    Ok(string) => {
+                        if generate_doc_comments {
+                            variants.extend([
+                                TokenTree::Punct(Punct::new('#', Spacing::Joint)),
+                                TokenTree::Group(Group::new(
+                                    Delimiter::Bracket,
+                                    TokenStream::from_iter([
+                                        TokenTree::Ident(Ident::new("doc", Span::call_site())),
+                                        TokenTree::Punct(Punct::new('=', Spacing::Joint)),
+                                        TokenTree::Literal(string.clone()),
+                                    ]),
+                                )),
+                            ]);
+                        }
+                        arms.extend(generate_arm(
+                            &variant_ident.to_string(),
+                            destructure,
+                            string,
+                        ));
                     }
-                    Err((arm, compile_error)) => {
-                        arms.extend(arm);
+                    Err(compile_error) => {
+                        // dummy arm so we just continue compiling
+                        arms.extend(generate_arm(
+                            &variant_ident.to_string(),
+                            destructure,
+                            Literal::string(""),
+                        ));
                         compile_errors.extend(compile_error);
                     }
                 };
@@ -375,7 +417,7 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
                 match enum_body.peek() {
                     Some(TokenTree::Punct(punct)) if *punct == ',' => {
                         // trailing comma
-                        variants.extend(enum_body.next());
+                        variant.extend(enum_body.next());
                     }
                     _ => (),
                 }
@@ -385,7 +427,7 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
             // Foo { a: bool, b: usize } = "foo"
             //     ^^^^^^^^^^^^^^^^^^^^^
             Some(TokenTree::Group(fields)) if fields.delimiter() == Delimiter::Brace => {
-                variants.extend([TokenTree::Group(fields.clone())]);
+                variant.extend([TokenTree::Group(fields.clone())]);
 
                 // if we are after `:`. We hold this because types themselves can contain `:`, e.g
                 // `for<T: Bar> Foo<T>`
@@ -428,12 +470,34 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
 
                 // Foo { a: bool, b: usize } = "foo",
                 //                           ^^^^^^^
-                match extract_arm(&mut enum_body, variant_ident, destructure) {
-                    Ok(arm) => {
-                        arms.extend(arm);
+                match extract_string(&mut enum_body, variant_ident.span()) {
+                    Ok(string) => {
+                        if generate_doc_comments {
+                            variants.extend([
+                                TokenTree::Punct(Punct::new('#', Spacing::Joint)),
+                                TokenTree::Group(Group::new(
+                                    Delimiter::Bracket,
+                                    TokenStream::from_iter([
+                                        TokenTree::Ident(Ident::new("doc", Span::call_site())),
+                                        TokenTree::Punct(Punct::new('=', Spacing::Joint)),
+                                        TokenTree::Literal(string.clone()),
+                                    ]),
+                                )),
+                            ]);
+                        }
+                        arms.extend(generate_arm(
+                            &variant_ident.to_string(),
+                            destructure,
+                            string,
+                        ));
                     }
-                    Err((arm, compile_error)) => {
-                        arms.extend(arm);
+                    Err(compile_error) => {
+                        // dummy arm so we just continue compiling
+                        arms.extend(generate_arm(
+                            &variant_ident.to_string(),
+                            destructure,
+                            Literal::string(""),
+                        ));
                         compile_errors.extend(compile_error);
                     }
                 };
@@ -443,7 +507,7 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
                 match enum_body.peek() {
                     Some(TokenTree::Punct(punct)) if *punct == ',' => {
                         // trailing comma
-                        variants.extend(enum_body.next());
+                        variant.extend(enum_body.next());
                     }
                     _ => (),
                 }
@@ -457,9 +521,22 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
                     // Foo = "foo",
                     //       ^^^^^
                     Some(TokenTree::Literal(string)) => {
+                        if generate_doc_comments {
+                            variants.extend([
+                                TokenTree::Punct(Punct::new('#', Spacing::Joint)),
+                                TokenTree::Group(Group::new(
+                                    Delimiter::Bracket,
+                                    TokenStream::from_iter([
+                                        TokenTree::Ident(Ident::new("doc", Span::call_site())),
+                                        TokenTree::Punct(Punct::new('=', Spacing::Joint)),
+                                        TokenTree::Literal(string.clone()),
+                                    ]),
+                                )),
+                            ]);
+                        }
                         // Success.
                         arms.extend(generate_arm(
-                            variant_ident,
+                            &variant_ident.to_string(),
                             // Foo {}
                             //     ^^
                             TokenTree::Group(Group::new(Delimiter::Brace, TokenStream::new())),
@@ -472,7 +549,7 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
 
                         // DUMMY arm so we compile. so rust-analyzer works better
                         arms.extend(generate_arm(
-                            variant_ident,
+                            &variant_ident.to_string(),
                             // Foo {}
                             //     ^^
                             TokenTree::Group(Group::new(Delimiter::Brace, TokenStream::new())),
@@ -487,7 +564,7 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
                 match enum_body.peek() {
                     Some(TokenTree::Punct(punct)) if *punct == ',' => {
                         // trailing comma
-                        variants.extend(enum_body.next());
+                        variant.extend(enum_body.next());
                     }
                     _ => (),
                 }
@@ -497,7 +574,7 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
             // Foo,
             //    ^
             Some(TokenTree::Punct(punct)) if punct == ',' => {
-                variants.extend([TokenTree::Punct(punct.clone())]);
+                variant.extend([TokenTree::Punct(punct.clone())]);
 
                 compile_errors.extend(CompileError::new(
                     variant_ident.span(),
@@ -506,7 +583,7 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
 
                 // DUMMY arm so we compile. so rust-analyzer works better
                 arms.extend(generate_arm(
-                    variant_ident,
+                    &variant_ident.to_string(),
                     // Foo {}
                     //     ^^
                     TokenTree::Group(Group::new(Delimiter::Brace, TokenStream::new())),
@@ -525,7 +602,7 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
 
                 // DUMMY arm so we compile. so rust-analyzer works better
                 arms.extend(generate_arm(
-                    variant_ident,
+                    &variant_ident.to_string(),
                     // Foo {}
                     //     ^^
                     TokenTree::Group(Group::new(Delimiter::Brace, TokenStream::new())),
@@ -536,6 +613,8 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
             }
             Some(_) => unreachable!("no other token is valid in this position"),
         }
+
+        variants.extend(variant);
     }
 
     // The original enum. Re-constructed but without the string discriminants
@@ -547,6 +626,18 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
         .chain([TokenTree::Group(Group::new(Delimiter::Brace, variants))]);
 
     // actual implementation of the `Display` trait
+    //
+    // equivalent to:
+    //
+    // quote! {
+    //     impl ::core::fmt::Display for #enum_ident {
+    //         fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+    //             match self {
+    //                 #arms
+    //             }
+    //         }
+    //     }
+    // }
     let display_impl = TokenStream::from_iter([
         TokenTree::Ident(Ident::new("impl", Span::call_site())),
         TokenTree::Punct(Punct::new(':', Spacing::Joint)),
@@ -625,11 +716,10 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
 /// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ return (DisplayArm)
 /// ```
 #[allow(clippy::result_large_err)]
-fn extract_arm(
+fn extract_string(
     ts: &mut std::iter::Peekable<proc_macro::token_stream::IntoIter>,
-    variant_ident: Ident,
-    destructure: TokenTree,
-) -> Result<DisplayArm, (DisplayArm, CompileError)> {
+    variant_ident_span: Span,
+) -> Result<Literal, CompileError> {
     // NOTE: We nest it because even if there is no discriminant (`= "foo"`) we still want to
     // output a syntactically valid enum so rust-analyzer can work with it for better DX
     match ts.next() {
@@ -639,29 +729,16 @@ fn extract_arm(
             match ts.next() {
                 Some(TokenTree::Literal(string)) => {
                     // Success.
-                    Ok(generate_arm(variant_ident, destructure, string))
+                    Ok(string)
                 }
-                Some(tt) => {
-                    Err((
-                        // dummy arm, so we continue to compile
-                        generate_arm(variant_ident, destructure, Literal::string("")),
-                        CompileError::new(tt.span(), "expected string literal"),
-                    ))
-                }
+                Some(tt) => Err(CompileError::new(tt.span(), "expected string literal")),
                 None => unreachable!("`=` is always followed by an expression"),
             }
         }
-        _ => {
-            let span = variant_ident.span();
-            Err((
-                // dummy arm, so we continue to compile
-                generate_arm(variant_ident, destructure, Literal::string("")),
-                CompileError::new(
-                    span,
-                    "expected this variant to have a string discriminant: `= \"...\"`",
-                ),
-            ))
-        }
+        _ => Err(CompileError::new(
+            variant_ident_span,
+            "expected this variant to have a string discriminant: `= \"...\"`",
+        )),
     }
 }
 
@@ -680,12 +757,12 @@ type DisplayArm = [TokenTree; 12];
 ///                     ^^^^^^^^^^^^^^^^^^^^ destructure
 ///                                                                      ^^^^^ string
 /// ```
-fn generate_arm(variant_ident: Ident, destructure: TokenTree, string: Literal) -> DisplayArm {
+fn generate_arm(variant: &str, destructure: TokenTree, string: Literal) -> DisplayArm {
     [
         TokenTree::Ident(Ident::new("Self", Span::call_site())),
         TokenTree::Punct(Punct::new(':', Spacing::Joint)),
         TokenTree::Punct(Punct::new(':', Spacing::Joint)),
-        TokenTree::Ident(variant_ident),
+        TokenTree::Ident(Ident::new(&variant, Span::call_site())),
         destructure,
         TokenTree::Punct(Punct::new('=', Spacing::Joint)),
         TokenTree::Punct(Punct::new('>', Spacing::Joint)),

@@ -1,6 +1,6 @@
 use displayr::display;
 
-#[display]
+#[display(doc)]
 pub enum DataStoreError {
     Disconnect(std::io::Error) = "data store disconnected",
     Redaction(String) = "the data for key `{_0}` is not available",
