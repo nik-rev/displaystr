@@ -1,3 +1,4 @@
+#![feature(proc_macro_diagnostic)]
 //! [![crates.io](https://img.shields.io/crates/v/displayst?style=flat-square&logo=rust)](https://crates.io/crates/displayst)
 //! [![docs.rs](https://img.shields.io/badge/docs.rs-displayst-blue?style=flat-square&logo=docs.rs)](https://docs.rs/displayst)
 //! ![license](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue?style=flat-square)
@@ -212,8 +213,10 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
 
     // enum Foo where A: B { ... }
     //                     ^^^^^^^ contains all of the variants
-    let enum_body = match ts.next() {
-        Some(TokenTree::Group(group)) if group.delimiter() == Delimiter::Brace => group.stream(),
+    let mut enum_body = match ts.next() {
+        Some(TokenTree::Group(group)) if group.delimiter() == Delimiter::Brace => {
+            group.stream().into_iter().peekable()
+        }
         _ => unreachable!("enum has braces"),
     };
 
@@ -241,17 +244,21 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
     //     ^^^^^^^^^^^
     // }
     loop {
+        if enum_body.peek().is_none() {
+            break;
+        }
+
         // Parse all attributes on the variant
 
         loop {
-            match ts.peek() {
+            match enum_body.peek() {
                 Some(TokenTree::Punct(punct)) if *punct == '#' => {
                     // #[foo = bar]
                     // ^
-                    variants.extend(ts.next());
+                    variants.extend(enum_body.next());
                     // #[foo = bar]
                     //  ^^^^^^^^^^^
-                    variants.extend(ts.next());
+                    variants.extend(enum_body.next());
                 }
                 // no more attributes
                 _ => break,
@@ -262,19 +269,19 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
 
         // pub(crate) Foo
         // ^^^^^^^^^^
-        match ts.peek() {
+        match enum_body.peek() {
             // pub(crate)
             // ^^^
             Some(TokenTree::Ident(ident)) if ident.to_string() == "pub" => {
-                variants.extend(ts.next());
+                variants.extend(enum_body.next());
 
-                match ts.peek() {
+                match enum_body.peek() {
                     // pub(in crate)
                     //    ^^^^^^^^^^
                     Some(TokenTree::Group(group))
                         if group.delimiter() == Delimiter::Parenthesis =>
                     {
-                        variants.extend(ts.next());
+                        variants.extend(enum_body.next());
                     }
                     _ => (),
                 }
@@ -287,7 +294,7 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
         // Foo {}
         // ^^^
 
-        let variant_ident = match ts.next() {
+        let variant_ident = match enum_body.next() {
             Some(TokenTree::Ident(ident)) => {
                 variants.extend([TokenTree::Ident(ident.clone())]);
                 ident
@@ -297,7 +304,7 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
 
         // Foo { a: usize, b: usize }
         //     ^^^^^^^^^^^^^^^^^^^^^^
-        match ts.next() {
+        match enum_body.next() {
             // tuple variant
             //
             // Foo(a, b) = "foo",
@@ -353,7 +360,7 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
 
                 // Foo(a, b) = "foo",
                 //           ^^^^^^^
-                match extract_arm(&mut ts, variant_ident, destructure) {
+                match extract_arm(&mut enum_body, variant_ident, destructure) {
                     Ok(arm) => {
                         arms.extend(arm);
                     }
@@ -365,10 +372,10 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
 
                 // Foo(a, b) = "foo",
                 //                  ^
-                match ts.peek() {
+                match enum_body.peek() {
                     Some(TokenTree::Punct(punct)) if *punct == ',' => {
                         // trailing comma
-                        variants.extend(ts.next());
+                        variants.extend(enum_body.next());
                     }
                     _ => (),
                 }
@@ -392,11 +399,12 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
 
                 // Obtain all the fields. Every field has `:` preceded by an identifier.
                 loop {
+                    let current = fields.next();
                     match fields.peek() {
                         Some(TokenTree::Punct(punct)) if *punct == ':' && !is_inside_type => {
                             // Self::InvalidHeader { expected, found, } => f.write_fmt(format_args!("..."))
                             //                       ^^^^^^^^
-                            destructure.extend(fields.next());
+                            destructure.extend(current);
                             // Self::InvalidHeader { expected, found, } => f.write_fmt(format_args!("..."))
                             //                               ^
                             destructure.extend([TokenTree::Punct(Punct::new(',', Spacing::Joint))]);
@@ -406,7 +414,6 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
                         //         ^
                         Some(TokenTree::Punct(punct)) if *punct == ',' && is_inside_type => {
                             is_inside_type = false;
-                            fields.next();
                         }
                         // ignore any other tokens like `#[doc = "..."]` or `pub(crate)`
                         Some(_) => (),
@@ -421,7 +428,7 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
 
                 // Foo { a: bool, b: usize } = "foo",
                 //                           ^^^^^^^
-                match extract_arm(&mut ts, variant_ident, destructure) {
+                match extract_arm(&mut enum_body, variant_ident, destructure) {
                     Ok(arm) => {
                         arms.extend(arm);
                     }
@@ -433,10 +440,10 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
 
                 // Foo { a: bool, b: usize } = "foo",
                 //                                  ^
-                match ts.peek() {
+                match enum_body.peek() {
                     Some(TokenTree::Punct(punct)) if *punct == ',' => {
                         // trailing comma
-                        variants.extend(ts.next());
+                        variants.extend(enum_body.next());
                     }
                     _ => (),
                 }
@@ -446,7 +453,7 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
             // Foo = "foo",
             //     ^
             Some(TokenTree::Punct(punct)) if punct == '=' => {
-                match ts.next() {
+                match enum_body.next() {
                     // Foo = "foo",
                     //       ^^^^^
                     Some(TokenTree::Literal(string)) => {
@@ -477,10 +484,10 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
 
                 // Foo = "foo",
                 //            ^
-                match ts.peek() {
+                match enum_body.peek() {
                     Some(TokenTree::Punct(punct)) if *punct == ',' => {
                         // trailing comma
-                        variants.extend(ts.next());
+                        variants.extend(enum_body.next());
                     }
                     _ => (),
                 }
@@ -537,8 +544,7 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
         .chain([TokenTree::Ident(enum_ident.clone())])
         .chain(generics)
         .chain(where_clause)
-        .chain(enum_body)
-        .chain(variants);
+        .chain([TokenTree::Group(Group::new(Delimiter::Brace, variants))]);
 
     // actual implementation of the `Display` trait
     let display_impl = TokenStream::from_iter([
@@ -566,6 +572,7 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
                         TokenTree::Ident(Ident::new("self", Span::call_site())),
                         TokenTree::Punct(Punct::new(',', Spacing::Joint)),
                         TokenTree::Ident(Ident::new("f", Span::call_site())),
+                        TokenTree::Punct(Punct::new(':', Spacing::Joint)),
                         TokenTree::Punct(Punct::new('&', Spacing::Joint)),
                         TokenTree::Ident(Ident::new("mut", Span::call_site())),
                         TokenTree::Punct(Punct::new(':', Spacing::Joint)),
@@ -663,7 +670,7 @@ fn extract_arm(
 /// ```ignore
 /// Self::InvalidHeader { expected, found, } => f.write_fmt(format_args!("..."))
 /// ```
-type DisplayArm = [TokenTree; 11];
+type DisplayArm = [TokenTree; 12];
 
 /// Generates an arm like this:
 ///
@@ -701,6 +708,7 @@ fn generate_arm(variant_ident: Ident, destructure: TokenTree, string: Literal) -
                 )),
             ]),
         )),
+        TokenTree::Punct(Punct::new(',', Spacing::Joint)),
     ]
 }
 
