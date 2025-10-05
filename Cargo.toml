@@ -17,3 +17,5 @@ proc-macro = true
 
 [dev-dependencies]
 trybuild = "1.0"
+displaydoc = "0.2"
+thiserror = "2.0"
