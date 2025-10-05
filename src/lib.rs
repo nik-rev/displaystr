@@ -91,7 +91,7 @@
 //!
 //! # Multiple arguments
 //!
-//! You can use a tuple to supply multiple argumenst to the `format_args!`:
+//! You can use a tuple to supply multiple arguments to the `format_args!`:
 //!
 //! ```rust
 //! use displaystr::display;
