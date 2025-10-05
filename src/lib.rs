@@ -124,6 +124,49 @@
 
 use proc_macro::{Delimiter, Group, Ident, Literal, Punct, Spacing, Span, TokenStream, TokenTree};
 
+/// Implements [`Display`](::core::fmt::Display) for enums:
+///
+/// ```rust
+/// use displaystr::display;
+///
+/// #[display]
+/// pub enum DataStoreError {
+///     Disconnect(std::io::Error) = "data store disconnected",
+///     InvalidHeader {
+///         expected: String,
+///         found: String,
+///     } = "invalid header (expected {expected:?}, found {found:?})",
+/// }
+/// ```
+///
+/// The above expands to this:
+///
+/// ```rust
+/// use displaystr::display;
+///
+/// pub enum DataStoreError {
+///     Disconnect(std::io::Error),
+///     InvalidHeader {
+///         expected: String,
+///         found: String,
+///     },
+/// }
+///
+/// impl ::core::fmt::Display for DataStoreError {
+///     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+///         match self {
+///             Self::Disconnect(_0) => {
+///                 f.write_fmt(format_args!("data store disconnected"))
+///             }
+///             Self::InvalidHeader { expected, found } => {
+///                 f.write_fmt(format_args!("invalid header (expected {expected}, found {found})"))
+///             }
+///         }
+///     }
+/// }
+/// ```
+///
+/// For more information, see the [crate-level](crate) documentation
 #[proc_macro_attribute]
 pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
     // Contains all `compile_error!("msg")` which we'll report all at once
