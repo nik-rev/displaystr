@@ -133,7 +133,7 @@
 //!
 //! # Comparison between `displaystr`, `thiserror` and `displaydoc`
 //!
-//! These 4 errors are **identical**.
+//! These 3 errors are **identical**.
 //!
 //! ## `displaystr`
 //!
