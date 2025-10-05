@@ -1,15 +1,14 @@
-#![feature(proc_macro_diagnostic)]
-//! [![crates.io](https://img.shields.io/crates/v/displayst?style=flat-square&logo=rust)](https://crates.io/crates/displayst)
-//! [![docs.rs](https://img.shields.io/badge/docs.rs-displayst-blue?style=flat-square&logo=docs.rs)](https://docs.rs/displayst)
+//! [![crates.io](https://img.shields.io/crates/v/displaystr?style=flat-square&logo=rust)](https://crates.io/crates/displaystr)
+//! [![docs.rs](https://img.shields.io/badge/docs.rs-displaystr-blue?style=flat-square&logo=docs.rs)](https://docs.rs/displaystr)
 //! ![license](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue?style=flat-square)
 //! ![msrv](https://img.shields.io/badge/msrv-1.56-blue?style=flat-square&logo=rust)
-//! [![github](https://img.shields.io/github/stars/nik-rev/displayst)](https://github.com/nik-rev/displayst)
+//! [![github](https://img.shields.io/github/stars/nik-rev/displaystr)](https://github.com/nik-rev/displaystr)
 //!
 //! This crate provides a convenient attribute macro that implements [`Display`](core::fmt::Display) for you
 //!
 //! ```toml
 //! [dependencies]
-//! displayst = "0.1"
+//! displaystr = "0.1"
 //! ```
 //!
 //! **Bonus:** This crate has 0 dependencies. I think compile-times are very important, so I have put a lot of effort into optimizing them.
@@ -19,7 +18,7 @@
 //! Apply [`#[display]`](display) on `enum`s:
 //!
 //! ```rust
-//! use displayst::display;
+//! use displaystr::display;
 //!
 //! #[display]
 //! pub enum DataStoreError {
@@ -36,7 +35,7 @@
 //! The above expands to this:
 //!
 //! ```rust
-//! use displayst::display;
+//! use displaystr::display;
 //!
 //! pub enum DataStoreError {
 //!     Disconnect(std::io::Error),
@@ -73,7 +72,7 @@
 //! Use `#[display(doc)]` to automatically generate `///` comments. The above example's expansion `enum` would generate this:
 //!
 //! ```rust
-//! use displayst::display;
+//! use displaystr::display;
 //!
 //! pub enum DataStoreError {
 //!     /// data store disconnected

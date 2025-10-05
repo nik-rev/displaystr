@@ -1,0 +1,11 @@
+error: unexpected token
+ --> tests/ui/missing_string.rs:1:23
+  |
+1 | #[displaystr::display(docs)]
+  |                       ^^^^
+
+error: expected this variant to have a string discriminant: `= "..."`
+ --> tests/ui/missing_string.rs:4:5
+  |
+4 |     B,
+  |     ^

@@ -1,5 +1,5 @@
 [package]
-name = "displayr"
+name = "displaystr"
 version = "0.1.0"
 edition = "2024"
 
@@ -7,3 +7,6 @@ edition = "2024"
 
 [lib]
 proc-macro = true
+
+[dev-dependencies]
+trybuild = "1.0"
