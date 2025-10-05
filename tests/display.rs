@@ -30,7 +30,7 @@ fn tuple_variant() {
         A(u32) = "tuple 1: {_0}",
         B(u32,) = "tuple 1 with trailing comma: {_0}",
         C(u32, String) = "tuple 2: {_0}, {_1}",
-        D(u32, String,) = "tuple 2 with trailing comma: {_0}, {_1}",
+        D(u32, String,) = ("tuple 2 with trailing comma: {_0}, {}", _1),
     }
 
     assert_eq!(TupleVariant::A(1).to_string(), "tuple 1: 1");
@@ -56,7 +56,7 @@ fn struct_variant() {
         A { first: u32 } = "tuple 1: {first}",
         B { first: u32, } = "tuple 1 with trailing comma: {first}",
         C { first: u32, second: String } = "tuple 2: {first}, {second}",
-        D { first: u32, second: String, } = "tuple 2 with trailing comma: {first}, {second}"
+        D { first: u32, second: String, } = ("tuple 2 with trailing comma: {first}, {}", second)
     }
 
     assert_eq!(StructVariant::A { first: 1 }.to_string(), "tuple 1: 1");

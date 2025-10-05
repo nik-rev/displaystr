@@ -88,6 +88,39 @@
 //!     Unknown,
 //! }
 //! ```
+//!
+//! # Multiple arguments
+//!
+//! You can use a tuple to supply multiple argumenst to the `format_args!`:
+//!
+//! ```rust
+//! use displaystr::display;
+//!
+//! #[display]
+//! pub enum DataStoreError {
+//!     Redaction(String, Vec<String>) = ("the data for key `{_0}` is not available, but we recovered: {}", _1.join("+")),
+//! }
+//! ```
+//!
+//! Expands to this:
+//!
+//! ```rust
+//! use displaystr::display;
+//!
+//! pub enum DataStoreError {
+//!     Redaction(String, Vec<String>),
+//! }
+//!
+//! impl ::core::fmt::Display for DataStoreError {
+//!     fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+//!         match self {
+//!             Self::Redaction(_0, _1) => {
+//!                 f.write_fmt(format_args!("the data for key `{_0}` is not available, but we recovered: {}", _1.join("+")))
+//!             }
+//!         }
+//!     }
+//! }
+//! ```
 
 use proc_macro::{Delimiter, Group, Ident, Literal, Punct, Spacing, Span, TokenStream, TokenTree};
 
@@ -379,25 +412,16 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
 
                 // Foo(a, b) = "foo",
                 //           ^^^^^^^
-                match extract_string(&mut enum_body, variant_ident.span()) {
-                    Ok(string) => {
+                match extract_eq_string(&mut enum_body, variant_ident.span()) {
+                    Ok((string, stream)) => {
                         if generate_doc_comments {
-                            variants.extend([
-                                TokenTree::Punct(Punct::new('#', Spacing::Joint)),
-                                TokenTree::Group(Group::new(
-                                    Delimiter::Bracket,
-                                    TokenStream::from_iter([
-                                        TokenTree::Ident(Ident::new("doc", Span::call_site())),
-                                        TokenTree::Punct(Punct::new('=', Spacing::Joint)),
-                                        TokenTree::Literal(string.clone()),
-                                    ]),
-                                )),
-                            ]);
+                            variants.extend(doc_comment(&string.to_string()));
                         }
                         arms.extend(generate_arm(
                             &variant_ident.to_string(),
                             destructure,
                             string,
+                            stream,
                         ));
                     }
                     Err(compile_error) => {
@@ -406,6 +430,7 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
                             &variant_ident.to_string(),
                             destructure,
                             Literal::string(""),
+                            TokenStream::new(),
                         ));
                         compile_errors.extend(compile_error);
                     }
@@ -469,25 +494,16 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
 
                 // Foo { a: bool, b: usize } = "foo",
                 //                           ^^^^^^^
-                match extract_string(&mut enum_body, variant_ident.span()) {
-                    Ok(string) => {
+                match extract_eq_string(&mut enum_body, variant_ident.span()) {
+                    Ok((string, stream)) => {
                         if generate_doc_comments {
-                            variants.extend([
-                                TokenTree::Punct(Punct::new('#', Spacing::Joint)),
-                                TokenTree::Group(Group::new(
-                                    Delimiter::Bracket,
-                                    TokenStream::from_iter([
-                                        TokenTree::Ident(Ident::new("doc", Span::call_site())),
-                                        TokenTree::Punct(Punct::new('=', Spacing::Joint)),
-                                        TokenTree::Literal(string.clone()),
-                                    ]),
-                                )),
-                            ]);
+                            variants.extend(doc_comment(&string.to_string()));
                         }
                         arms.extend(generate_arm(
                             &variant_ident.to_string(),
                             destructure,
                             string,
+                            stream,
                         ));
                     }
                     Err(compile_error) => {
@@ -496,6 +512,7 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
                             &variant_ident.to_string(),
                             destructure,
                             Literal::string(""),
+                            TokenStream::new(),
                         ));
                         compile_errors.extend(compile_error);
                     }
@@ -516,22 +533,12 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
             // Foo = "foo",
             //     ^
             Some(TokenTree::Punct(punct)) if punct == '=' => {
-                match enum_body.next() {
-                    // Foo = "foo",
-                    //       ^^^^^
-                    Some(TokenTree::Literal(string)) => {
+                // Foo = "foo",
+                //       ^^^^^
+                match extract_string(&mut enum_body) {
+                    Ok((string, stream)) => {
                         if generate_doc_comments {
-                            variants.extend([
-                                TokenTree::Punct(Punct::new('#', Spacing::Joint)),
-                                TokenTree::Group(Group::new(
-                                    Delimiter::Bracket,
-                                    TokenStream::from_iter([
-                                        TokenTree::Ident(Ident::new("doc", Span::call_site())),
-                                        TokenTree::Punct(Punct::new('=', Spacing::Joint)),
-                                        TokenTree::Literal(string.clone()),
-                                    ]),
-                                )),
-                            ]);
+                            variants.extend(doc_comment(&string.to_string()));
                         }
                         // Success.
                         arms.extend(generate_arm(
@@ -540,11 +547,11 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
                             //     ^^
                             TokenTree::Group(Group::new(Delimiter::Brace, TokenStream::new())),
                             string,
+                            stream,
                         ));
                     }
-                    Some(tt) => {
-                        compile_errors
-                            .extend(CompileError::new(tt.span(), "expected string literal"));
+                    Err(compile_error) => {
+                        compile_errors.extend(compile_error);
 
                         // DUMMY arm so we compile. so rust-analyzer works better
                         arms.extend(generate_arm(
@@ -553,10 +560,10 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
                             //     ^^
                             TokenTree::Group(Group::new(Delimiter::Brace, TokenStream::new())),
                             Literal::string(""),
+                            TokenStream::new(),
                         ));
                     }
-                    None => unreachable!("`=` is always followed by an expression"),
-                };
+                }
 
                 // Foo = "foo",
                 //            ^
@@ -587,6 +594,7 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
                     //     ^^
                     TokenTree::Group(Group::new(Delimiter::Brace, TokenStream::new())),
                     Literal::string(""),
+                    TokenStream::new(),
                 ));
             }
             // unit variant with no comma after it (it the last variant)
@@ -606,6 +614,7 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
                     //     ^^
                     TokenTree::Group(Group::new(Delimiter::Brace, TokenStream::new())),
                     Literal::string(""),
+                    TokenStream::new(),
                 ));
 
                 break;
@@ -715,29 +724,61 @@ pub fn display(args: TokenStream, ts: TokenStream) -> TokenStream {
 /// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ return (DisplayArm)
 /// ```
 #[allow(clippy::result_large_err)]
-fn extract_string(
+fn extract_eq_string(
     ts: &mut std::iter::Peekable<proc_macro::token_stream::IntoIter>,
     variant_ident_span: Span,
-) -> Result<Literal, CompileError> {
+) -> Result<(Literal, TokenStream), CompileError> {
     // NOTE: We nest it because even if there is no discriminant (`= "foo"`) we still want to
     // output a syntactically valid enum so rust-analyzer can work with it for better DX
     match ts.next() {
         Some(TokenTree::Punct(punct)) if punct == '=' => {
             // Foo { a: bool, b: usize } = "foo"
             //                             ^^^^^
-            match ts.next() {
-                Some(TokenTree::Literal(string)) => {
-                    // Success.
-                    Ok(string)
-                }
-                Some(tt) => Err(CompileError::new(tt.span(), "expected string literal")),
-                None => unreachable!("`=` is always followed by an expression"),
-            }
+            extract_string(ts)
         }
         _ => Err(CompileError::new(
             variant_ident_span,
             "expected this variant to have a string discriminant: `= \"...\"`",
         )),
+    }
+}
+
+/// Generates a doc comment `///`
+fn doc_comment(content: &str) -> [TokenTree; 2] {
+    [
+        TokenTree::Punct(Punct::new('#', Spacing::Joint)),
+        TokenTree::Group(Group::new(
+            Delimiter::Bracket,
+            TokenStream::from_iter([
+                TokenTree::Ident(Ident::new("doc", Span::call_site())),
+                TokenTree::Punct(Punct::new('=', Spacing::Joint)),
+                TokenTree::Literal(Literal::string(content)),
+            ]),
+        )),
+    ]
+}
+
+fn extract_string(
+    ts: &mut std::iter::Peekable<proc_macro::token_stream::IntoIter>,
+) -> Result<(Literal, TokenStream), CompileError> {
+    let next = ts.next();
+
+    match next {
+        Some(TokenTree::Literal(string)) => {
+            // Success.
+            Ok((string, TokenStream::new()))
+        }
+        Some(TokenTree::Group(group)) if group.delimiter() == Delimiter::Parenthesis => {
+            let mut stream = group.stream().into_iter();
+
+            match stream.next() {
+                Some(TokenTree::Literal(string)) => Ok((string, stream.collect())),
+                Some(tt) => Err(CompileError::new(tt.span(), "expected string literal")),
+                None => Err(CompileError::new(group.span(), "expected string literal")),
+            }
+        }
+        Some(tt) => Err(CompileError::new(tt.span(), "expected string literal")),
+        None => unreachable!("`=` is always followed by an expression"),
     }
 }
 
@@ -751,17 +792,23 @@ type DisplayArm = [TokenTree; 12];
 /// Generates an arm like this:
 ///
 /// ```ignore
-/// Self::InvalidHeader { expected, found, } => f.write_fmt(format_args!("..."))
+/// Self::InvalidHeader { expected, found, } => f.write_fmt(format_args!("...", a, b, ))
 ///       ^^^^^^^^^^^^^ variant_ident
 ///                     ^^^^^^^^^^^^^^^^^^^^ destructure
 ///                                                                      ^^^^^ string
+///                                                                           ^^^^^^^^ stream
 /// ```
-fn generate_arm(variant: &str, destructure: TokenTree, string: Literal) -> DisplayArm {
+fn generate_arm(
+    variant: &str,
+    destructure: TokenTree,
+    string: Literal,
+    stream: TokenStream,
+) -> DisplayArm {
     [
         TokenTree::Ident(Ident::new("Self", Span::call_site())),
         TokenTree::Punct(Punct::new(':', Spacing::Joint)),
         TokenTree::Punct(Punct::new(':', Spacing::Joint)),
-        TokenTree::Ident(Ident::new(&variant, Span::call_site())),
+        TokenTree::Ident(Ident::new(variant, Span::call_site())),
         destructure,
         TokenTree::Punct(Punct::new('=', Spacing::Joint)),
         TokenTree::Punct(Punct::new('>', Spacing::Joint)),
@@ -780,7 +827,10 @@ fn generate_arm(variant: &str, destructure: TokenTree, string: Literal) -> Displ
                 TokenTree::Punct(Punct::new('!', Spacing::Joint)),
                 TokenTree::Group(Group::new(
                     Delimiter::Parenthesis,
-                    TokenTree::Literal(string).into(),
+                    [TokenTree::Literal(string)]
+                        .into_iter()
+                        .chain(stream)
+                        .collect(),
                 )),
             ]),
         )),
