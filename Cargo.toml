@@ -1,7 +1,14 @@
 [package]
 name = "displaystr"
 version = "0.1.0"
-edition = "2024"
+authors = ["Nik Revenco <pm@nikrev.com>"]
+license = "MIT OR Apache-2.0"
+rust-version = "1.56"
+edition = "2021"
+repository = "https://github.com/nik-rev/displaystr"
+homepage = "https://github.com/nik-rev/displaystr"
+keywords = ["display", "derive"]
+description = "An attribute macro for ergonomically implementing the Display trait"
 
 [dependencies]
 
