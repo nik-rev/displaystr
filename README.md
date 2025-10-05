@@ -15,7 +15,7 @@ This crate provides a convenient attribute macro that implements [`Display`](htt
 displaystr = "0.1"
 ```
 
-**Bonus:** This crate has 0 dependencies. I think compile-times are very important, so I have put a lot of effort into optimizing them.
+This crate has 0 dependencies. I think compile-times are very important, so I have put a lot of effort into optimizing them.
 
 ## Example
 
