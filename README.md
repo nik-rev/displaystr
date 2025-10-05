@@ -17,7 +17,7 @@ displaystr = "0.1"
 
 **Bonus:** This crate has 0 dependencies. I think compile-times are very important, so I have put a lot of effort into optimizing them.
 
-# Example
+## Example
 
 Apply `#[display]` on `enum`s:
 
@@ -71,7 +71,7 @@ impl ::core::fmt::Display for DataStoreError {
 }
 ```
 
-# Auto-generated doc comments
+## Auto-generated doc comments
 
 Use `#[display(doc)]` to automatically generate `///` comments. The above example's expansion `enum` would generate this:
 
@@ -90,6 +90,39 @@ pub enum DataStoreError {
     },
     /// unknown data store error
     Unknown,
+}
+```
+
+## Multiple arguments
+
+You can use a tuple to supply multiple argumenst to the `format_args!`:
+
+```rust
+use displaystr::display;
+
+#[display]
+pub enum DataStoreError {
+    Redaction(String, Vec<String>) = ("the data for key `{_0}` is not available, but we recovered: {}", _1.join("+")),
+}
+```
+
+Expands to this:
+
+```rust
+use displaystr::display;
+
+pub enum DataStoreError {
+    Redaction(String, Vec<String>),
+}
+
+impl ::core::fmt::Display for DataStoreError {
+    fn fmt(&self, f: &mut ::core::fmt::Formatter) -> ::core::fmt::Result {
+        match self {
+            Self::Redaction(_0, _1) => {
+                f.write_fmt(format_args!("the data for key `{_0}` is not available, but we recovered: {}", _1.join("+")))
+            }
+        }
+    }
 }
 ```
 
