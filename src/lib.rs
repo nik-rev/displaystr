@@ -135,7 +135,7 @@
 //!
 //! These 3 errors are **identical**.
 //!
-//! `displaystr` expresses the same error **in the most concise way** while being *orders of magnitude* faster to compile.
+//! `displaystr` expresses the same error **in the most concise way** while being *significantly* faster to compile (both "cold" compile times, and also each individual invocation)
 //!
 //! ## `displaystr`
 //!
