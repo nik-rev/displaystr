@@ -1,7 +1,7 @@
 //! [![crates.io](https://img.shields.io/crates/v/displaystr?style=flat-square&logo=rust)](https://crates.io/crates/displaystr)
 //! [![docs.rs](https://img.shields.io/badge/docs.rs-displaystr-blue?style=flat-square&logo=docs.rs)](https://docs.rs/displaystr)
 //! ![license](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue?style=flat-square)
-//! ![msrv](https://img.shields.io/badge/msrv-1.56-blue?style=flat-square&logo=rust)
+//! ![msrv](https://img.shields.io/badge/msrv-1.65-blue?style=flat-square&logo=rust)
 //! [![github](https://img.shields.io/github/stars/nik-rev/displaystr)](https://github.com/nik-rev/displaystr)
 //!
 //! This crate provides a convenient attribute macro that implements [`Display`](core::fmt::Display) for you
