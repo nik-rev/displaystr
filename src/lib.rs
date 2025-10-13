@@ -15,7 +15,7 @@
 //!
 //! # Example
 //!
-//! Apply [`#[display]`](display) on `enum`s:
+//! Apply [`#[display]`](macro@display) on `enum`s:
 //!
 //! ```rust
 //! use displaystr::display;

@@ -10,7 +10,7 @@ edit `lib.rs` instead, then re-run `cargo rdme` to re-generate this file
 [![crates.io](https://img.shields.io/crates/v/displaystr?style=flat-square&logo=rust)](https://crates.io/crates/displaystr)
 [![docs.rs](https://img.shields.io/badge/docs.rs-displaystr-blue?style=flat-square&logo=docs.rs)](https://docs.rs/displaystr)
 ![license](https://img.shields.io/badge/license-Apache--2.0_OR_MIT-blue?style=flat-square)
-![msrv](https://img.shields.io/badge/msrv-1.56-blue?style=flat-square&logo=rust)
+![msrv](https://img.shields.io/badge/msrv-1.65-blue?style=flat-square&logo=rust)
 [![github](https://img.shields.io/github/stars/nik-rev/displaystr)](https://github.com/nik-rev/displaystr)
 
 This crate provides a convenient attribute macro that implements [`Display`](https://doc.rust-lang.org/stable/core/fmt/trait.Display.html) for you
@@ -24,7 +24,7 @@ This crate has 0 dependencies. I think compile-times are very important, so I ha
 
 ## Example
 
-Apply `#[display]` on `enum`s:
+Apply [`#[display]`](https://docs.rs/displaystr/latest/displaystr/attr.display.html) on `enum`s:
 
 ```rust
 use displaystr::display;
