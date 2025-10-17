@@ -223,8 +223,10 @@
 //!
 //! # Notes
 //!
-//! - `#[display]` cannot be applied on generic types like `Foo<T>`, because that **significantly** increases complexity of the parsing logic required, which also leads to much higher compile-times
+//! - `#[display]` cannot be applied on generic types like `Foo<T>`, because that **significantly** increases
+//!   complexity of the parsing logic required, which also leads to much higher compile-times
 //! - `#[display]` only applies to `enum`s
+//! - Variants of enums marked with `#[display]` cannot have discriminants
 
 use proc_macro::{Delimiter, Group, Ident, Literal, Punct, Spacing, Span, TokenStream, TokenTree};
 
