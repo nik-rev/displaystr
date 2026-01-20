@@ -1,6 +1,6 @@
 [package]
 name = "displaystr"
-version = "0.1.11"
+version = "0.1.12"
 authors = ["Nik Revenco <pm@nikrev.com>"]
 license = "MIT OR Apache-2.0"
 rust-version = "1.76"
