@@ -12,6 +12,7 @@ categories = ["development-tools", "no-std", "no-std::no-alloc", "rust-patterns"
 description = "An attribute macro for ergonomically implementing the Display trait"
 
 [dependencies]
+nik-rev = "0.1.3"
 
 [lib]
 proc-macro = true
