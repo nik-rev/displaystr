@@ -8,7 +8,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! displaystr = "0.1"
+#![doc = concat!(env!("CARGO_PKG_NAME"), " = \"", env!("CARGO_PKG_VERSION_MAJOR"), ".", env!("CARGO_PKG_VERSION_MINOR"), "\"")]
 //! ```
 //!
 //! This crate has 0 dependencies. I think compile-times are very important, so I have put a lot of effort into optimizing them.
