@@ -15,7 +15,7 @@ dependencies = [
 
 [[package]]
 name = "displaystr"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "displaydoc",
  "nik-rev",
