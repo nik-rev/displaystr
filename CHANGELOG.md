@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-[Unreleased]: https://github.com/nik-rev/displaystr/compare/v0.1.12...HEAD
+[Unreleased]: {{repository}}/compare/v0.1.13...HEAD
+
+## [v0.1.13] - 2026-02-23
+
+[v0.1.13]: https://github.com/nik-rev/displaystr/compare/v0.1.12...v0.1.13
 
 - Documentation improvements
 
