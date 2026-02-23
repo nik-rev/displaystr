@@ -1,3 +1,4 @@
+pre-release-hook = ["cargo", "+nightly", "reedme"]
 pre-release-replacements = [
   {
     file = "CHANGELOG.md",
@@ -17,7 +18,7 @@ pre-release-replacements = [
     replace = """
 ## [Unreleased]
 
-[Unreleased]: https://github.com/nik-rev/displaystr/compare/{{tag_name}}...HEAD
+[Unreleased]: {{repository}}/compare/{{tag_name}}...HEAD
 
 ## [v{{version}}] - {{date}}""",
     exactly = 1
