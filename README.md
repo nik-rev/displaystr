@@ -29,7 +29,7 @@ displaystr = "0.1"
 
 This crate has 0 dependencies. I think compile-times are very important, so I have put a lot of effort into optimizing them.
 
-# Example
+## Example
 
 Apply [`#[display]`](https://docs.rs/displaystr/0.1.15/displaystr/attr.display.html) on `enum`s:
 
@@ -83,12 +83,12 @@ impl ::core::fmt::Display for DataStoreError {
 }
 ```
 
-# IDE Support
+## IDE Support
 
 - `rustfmt` formats it flawlessly
 - `rust-analyzer` supports hover and goto definition on the actual strings
 
-# Auto-generated doc comments
+## Auto-generated doc comments
 
 Use `#[display(doc)]` to automatically generate `///` comments:
 
@@ -129,7 +129,7 @@ pub enum DataStoreError {
 // impl Display omitted since it's identical to the previous section
 ```
 
-# Multiple arguments
+## Multiple arguments
 
 You can use a tuple to supply multiple arguments to the `format_args!`:
 
@@ -166,13 +166,13 @@ impl ::core::fmt::Display for DataStoreError {
 }
 ```
 
-# Comparison between `displaystr`, `thiserror` and `displaydoc`
+## Comparison between `displaystr`, `thiserror` and `displaydoc`
 
 These 3 errors are **identical**.
 
 `displaystr` expresses the same error **in the most concise way** while being *significantly* faster to compile (both “cold” compile times, and also each individual invocation)
 
-## `displaystr`
+### `displaystr`
 
 ```rust
 use thiserror::Error;
@@ -191,7 +191,7 @@ pub enum DataStoreError {
 }
 ```
 
-## `thiserror`
+### `thiserror`
 
 ```rust
 use thiserror::Error;
@@ -212,7 +212,7 @@ pub enum DataStoreError {
 }
 ```
 
-## `displaydoc`
+### `displaydoc`
 
 ```rust
 use thiserror::Error;
@@ -234,7 +234,7 @@ pub enum DataStoreError {
 }
 ```
 
-# Notes
+## Notes
 
 - `#[display]` cannot be applied on generic types like `Foo<T>`, because that **significantly** increases
   complexity of the parsing logic required, which also leads to much higher compile-times

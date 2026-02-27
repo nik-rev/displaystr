@@ -18,6 +18,3 @@ proc-macro = true
 trybuild = "1.0"
 displaydoc = "0.2"
 thiserror = "2.0"
-
-[build-dependencies]
-nik-rev = "0.1.7"
