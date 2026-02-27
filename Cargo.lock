@@ -15,7 +15,7 @@ dependencies = [
 
 [[package]]
 name = "displaystr"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "displaydoc",
  "thiserror",
