@@ -9,7 +9,7 @@
 
     This region was generated from Rust documentation comments by `cargo-reedme` using this command:
 
-        cargo reedme
+        cargo +nightly reedme
 
     for more info: https://github.com/nik-rev/cargo-reedme
 
@@ -31,7 +31,7 @@ This crate has 0 dependencies. I think compile-times are very important, so I ha
 
 ## Example
 
-Apply [`#[display]`](https://docs.rs/displaystr/0.1.16/displaystr/attr.display.html) on `enum`s:
+Apply [`#[display]`](https://docs.rs/displaystr/latest/displaystr/attr.display.html) on `enum`s:
 
 ```rust
 use displaystr::display;
