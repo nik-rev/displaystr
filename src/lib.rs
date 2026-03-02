@@ -227,7 +227,15 @@
 //! - `#[display]` only applies to `enum`s
 //! - Variants of enums marked with `#[display]` cannot have discriminants
 
-use proc_macro::{Delimiter, Group, Ident, Literal, Punct, Spacing, Span, TokenStream, TokenTree};
+use proc_macro::Delimiter;
+use proc_macro::Group;
+use proc_macro::Ident;
+use proc_macro::Literal;
+use proc_macro::Punct;
+use proc_macro::Spacing;
+use proc_macro::Span;
+use proc_macro::TokenStream;
+use proc_macro::TokenTree;
 
 /// Ergonomically implement [`Display`](::core::fmt::Display) for `enum`s
 ///
@@ -886,10 +894,12 @@ fn extract_eq_string(
             //                             ^^^^^
             extract_string(ts)
         }
-        _ => Err(CompileError::new(
-            variant_ident_span,
-            "expected this variant to have a string discriminant: `= \"...\"`",
-        )),
+        _ => {
+            Err(CompileError::new(
+                variant_ident_span,
+                "expected this variant to have a string discriminant: `= \"...\"`",
+            ))
+        }
     }
 }
 
